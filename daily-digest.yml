@@ -1,0 +1,51 @@
+name: Daily Remote Job Digest
+
+on:
+  # Berlin is UTC+1 in winter (CET) and UTC+2 in summer (CEST).
+  # 10:00 Berlin time = 09:00 UTC (winter) or 08:00 UTC (summer).
+  # We run BOTH and let the script itself check the current Berlin hour,
+  # so only the correct one actually sends — this avoids missing the
+  # daily run during DST transitions.
+  schedule:
+    - cron: "0 8 * * *"   # 10:00 CEST (summer, UTC+2)
+    - cron: "0 9 * * *"   # 10:00 CET  (winter, UTC+1)
+  workflow_dispatch: {}    # lets you trigger it manually from the Actions tab to test
+
+jobs:
+  send-digest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Skip run if it is not currently 10am Berlin time
+        id: gate
+        run: |
+          BERLIN_HOUR=$(TZ="Europe/Berlin" date +%H)
+          echo "Current Berlin hour: $BERLIN_HOUR"
+          if [ "$BERLIN_HOUR" = "10" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run job digest script
+        if: steps.gate.outputs.run == 'true'
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          DIGEST_TO_ADDRESS: ${{ secrets.DIGEST_TO_ADDRESS }}
+          JOB_KEYWORDS: ${{ secrets.JOB_KEYWORDS }}
+          GMAIL_OAUTH_REFRESH_TOKEN: ${{ secrets.GMAIL_OAUTH_REFRESH_TOKEN }}
+          GMAIL_OAUTH_CLIENT_ID: ${{ secrets.GMAIL_OAUTH_CLIENT_ID }}
+          GMAIL_OAUTH_CLIENT_SECRET: ${{ secrets.GMAIL_OAUTH_CLIENT_SECRET }}
+          EU_REMOTE_RSS_URL: ${{ secrets.EU_REMOTE_RSS_URL }}
+        run: python job_digest.py
